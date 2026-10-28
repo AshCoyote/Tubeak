@@ -1,0 +1,57 @@
+services:
+  db:
+    image: mariadb:10.11
+    restart: on-failure
+    environment:
+      MARIADB_DATABASE: tubeak
+      MARIADB_USER: tubeak
+      MARIADB_PASSWORD: tubeak
+      MARIADB_ROOT_PASSWORD: tubeak_root
+      MARIADB_AUTO_UPGRADE: "1"
+    volumes:
+      - db-data:/var/lib/mysql
+      # Imported once, on first initialisation of an empty data volume.
+      - ./tubeak.sql:/docker-entrypoint-initdb.d/01-tubeak.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 -uroot -p\"$$MARIADB_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  web:
+    build:
+      context: ./docker/base44
+      dockerfile: php.Dockerfile
+    restart: on-failure
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "3000:80"
+    volumes:
+      - .:/var/www/html
+    environment:
+      - TUBEAK_DB_HOST=db
+      - TUBEAK_DB_USER=tubeak
+      - TUBEAK_DB_PASSWORD=tubeak
+      - TUBEAK_DB_NAME=tubeak
+      - TUBEAK_SITE_URL=https://3000-${BASE44_PUBLIC_HOST_SUFFIX}
+      - BASE44_PREVIEW_MODE
+    command:
+      - sh
+      - -ec
+      - |
+        mkdir -p uploads/images uploads/videos uploads/temp uploads/streaming sitemaps
+        chmod -R 777 uploads sitemaps
+        chmod o+rx /var/www/html
+        exec apache2-foreground
+    healthcheck:
+      test: ["CMD-SHELL", "php -r 'exit(@file_get_contents(\"http://127.0.0.1/index.php?one=home\") === false ? 1 : 0);'"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+volumes:
+  db-data:
